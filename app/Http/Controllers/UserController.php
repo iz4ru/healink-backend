@@ -180,7 +180,6 @@ class UserController extends Controller
         $user = User::findOrFail($id);
         $currentUser = Auth::user();
 
-        // 1 & 2. Validasi masuk $data + Pesan Kustom + Ignore Unique ID sendiri
         $data = $request->validate([
             'name'     => 'required|string|max:255',
             'email'    => ['required', 'email', Rule::unique('users')->ignore($user->id)],
@@ -190,6 +189,7 @@ class UserController extends Controller
             'name.required'     => 'Nama pengguna wajib diisi.',
             'email.required'    => 'Email wajib diisi.',
             'email.unique'      => 'Email ini sudah dipakai oleh akun lain.',
+            'email.email'       => 'Email yang dimasukkan tidak valid.',
             'username.required' => 'Username wajib diisi.',
             'username.unique'   => 'Username ini sudah dipakai oleh akun lain.',
             'password.min'      => 'Password minimal 6 karakter.',
@@ -209,7 +209,6 @@ class UserController extends Controller
 
             $user->save();
 
-            // 4. Catat Log Aktivitas
             Log::create([
                 'user_id'  => $currentUser->id,
                 'activity' => 'Ubah data pengguna',
@@ -297,6 +296,111 @@ class UserController extends Controller
     {
         try {
             $query = Log::where('user_id', $id);
+
+            if ($request->filled('search')) {
+                $search = strtolower(trim($request->search));
+                $query->where(function($q) use ($search) {
+                    $q->whereRaw('LOWER(activity) LIKE ?', ["%{$search}%"])
+                        ->orWhereRaw('LOWER(detail) LIKE ?', ["%{$search}%"]);
+                });
+            }
+
+            $sort = $request->query('sort', 'newest');
+            if ($sort === 'oldest') {
+                $query->orderBy('created_at', 'asc');
+            } else {
+                $query->orderBy('created_at', 'desc');
+            }
+
+            $perPage = $request->query('per_page', 10);
+            $logs = $query->paginate($perPage);
+
+            $logs->through(function($log) {
+                $dateStr = Carbon::parse($log->created_at)
+                                ->locale('id')
+                                ->translatedFormat('l d/m/y, H:i');
+
+                return [
+                    'id'       => $log->id,
+                    'date'     => ucfirst($dateStr),
+                    'activity' => $log->activity,
+                    'detail'   => $log->detail
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Berhasil mengambil log aktivitas',
+                'data'    => $logs // Lempar langsung objek paginator-nya!
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function updateProfile(Request $request)
+    {
+        $currentUser = Auth::user();
+
+        $data = $request->validate([
+            'name'     => 'required|string|max:255',
+            'email'    => ['required', 'email', Rule::unique('users')->ignore($currentUser->id)],
+            'username' => ['required', 'string', Rule::unique('users')->ignore($currentUser->id)],
+            'password' => 'nullable|string|min:6',
+        ], [
+            'name.required'     => 'Nama pengguna wajib diisi.',
+            'email.required'    => 'Email wajib diisi.',
+            'email.unique'      => 'Email ini sudah dipakai oleh akun lain.',
+            'email.email'       => 'Email yang dimasukkan tidak valid.',
+            'username.required' => 'Username wajib diisi.',
+            'username.unique'   => 'Username ini sudah dipakai oleh akun lain.',
+            'password.min'      => 'Password minimal 6 karakter.',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $currentUser->name = $data['name'];
+            $currentUser->email = $data['email'];
+            $currentUser->username = $data['username'];
+
+            if (!empty($data['password'])) {
+                $currentUser->password = Hash::make($data['password']);
+            }
+
+            $currentUser->save();
+
+            Log::create([
+                'user_id'  => $currentUser->id,
+                'activity' => 'Pembaruan profil mandiri',
+                'detail'   => $currentUser->name . ' memperbarui data profilnya',
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Profil berhasil diperbarui',
+                'data'    => $currentUser
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false, 
+                'message' => 'Gagal memperbarui profil: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function myLogs(Request $request)
+    {
+        try {
+            $currentUser = Auth::user();
+            $query = Log::where('user_id', $currentUser->id);
 
             if ($request->filled('search')) {
                 $search = strtolower(trim($request->search));
