@@ -21,7 +21,7 @@ class NotificationService
             'is_read' => false,
         ]);
 
-        $factory = (new Factory)->withServiceAccount(storage_path('app/private/firebase_credentials.json'));
+        $factory = (new Factory)->withServiceAccount(json_decode(env('FIREBASE_CREDENTIALS'), true));
         $messaging = $factory->createMessaging();
 
         $tokens = $user->fcmTokens()->pluck('token')->toArray();
