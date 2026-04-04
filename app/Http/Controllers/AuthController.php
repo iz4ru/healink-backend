@@ -10,72 +10,97 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
-    public function login(Request $request)
-    {
-        $request->validate([
-            'login'    => ['required', 'string'],
-            'password' => ['required', 'string'],
-        ]);
+	public function login(Request $request)
+	{
+		$request->validate([
+			'login'    => ['required', 'string'],
+			'password' => ['required', 'string'],
+		]);
 
-        $loginValue = $request->input('login');
-        $loginField = filter_var($loginValue, FILTER_VALIDATE_EMAIL)
-            ? 'email'
-            : 'username';
+		$loginValue = $request->input('login');
+		$loginField = filter_var($loginValue, FILTER_VALIDATE_EMAIL)
+			? 'email'
+			: 'username';
 
-        $user = User::where($loginField, $loginValue)->first();
+		$user = User::where($loginField, $loginValue)->first();
 
-        if (!$user) {
-            return response()->json([
-                'message' => 'Akun tidak ditemukan.',
-            ], 404);
-        }
+		if (!$user) {
+			return response()->json([
+				'message' => 'Akun tidak ditemukan.',
+			], 404);
+		}
 
-        if (!$user->is_active) {
-            return response()->json([
-                'message' => 'Akun Anda tidak aktif. Silakan hubungi owner / admin.',
-            ], 403);
-        }
+		if (!$user->is_active) {
+			return response()->json([
+				'message' => 'Akun Anda tidak aktif. Silakan hubungi owner / admin.',
+			], 403);
+		}
 
-        if (!Hash::check($request->password, $user->password)) {
-            return response()->json([
-                'message' => 'Password salah.',
-            ], 401);
-        }
+		if (!Hash::check($request->password, $user->password)) {
+			return response()->json([
+				'message' => 'Password salah.',
+			], 401);
+		}
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+		$token = $user->createToken('auth_token')->plainTextToken;
 
-        return response()->json([
-            'message' => 'Login berhasil.',
-            'token'   => $token,
-            'user'    => [
-                'id'       => $user->id,
-                'name'     => $user->name,
-                'email'    => $user->email,
-                'username' => $user->username,
-                'role'     => $user->role,
-            ],
-        ], 200);
-    }
+		return response()->json([
+			'message' => 'Login berhasil.',
+			'token'   => $token,
+			'user'    => [
+				'id'       => $user->id,
+				'name'     => $user->name,
+				'email'    => $user->email,
+				'username' => $user->username,
+				'role'     => $user->role,
+			],
+		], 200);
+	}
 
-    public function logout(Request $request)
+    public function refresh(Request $request)
     {
         $user = $request->user();
 
-        $bearerToken = $request->bearerToken(); // "1|abc123"
-        $tokenId = explode('|', $bearerToken, 2)[0]; // "1"
+        // Cari token fisik di database untuk dihapus
+        $tokenModel = PersonalAccessToken::findToken($request->bearerToken());
 
-        $deviceId = $request->header('X-Device-ID');
+        if ($user && $tokenModel) {
+            // Hapus token lama
+            $tokenModel->delete();
 
-        if ($deviceId) {
-            FcmToken::where('user_id', $user->id)
-                ->where('device_id', $deviceId)
-                ->delete();
+            // Buat token baru
+            $newToken = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'token' => $newToken,
+                'message' => 'Token refreshed'
+            ], 200);
         }
 
-        $user->tokens()->where('id', $tokenId)->delete();
-
-        return response()->json([
-            'message' => 'Logout berhasil.',
-        ], 200);
+        // Jika user tidak ditemukan atau token tidak valid
+        return response()->json(['message' => 'Unauthorized'], 401);
     }
+
+	public function logout(Request $request)
+	{
+		$user = $request->user();
+
+		$deviceId = $request->header('X-Device-ID');
+
+		if ($deviceId) {
+			FcmToken::where('user_id', $user->id)
+				->where('device_id', $deviceId)
+        ->delete();
+		}
+
+        $token = PersonalAccessToken::findToken($request->bearerToken());
+
+        if ($token) {
+            $token->delete();
+        }
+
+		return response()->json([
+			'message' => 'Logout berhasil.',
+		], 200);
+	}
 }

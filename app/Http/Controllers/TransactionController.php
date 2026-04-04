@@ -192,9 +192,23 @@ class TransactionController extends Controller
             $subtotal = 0;
             $itemsToInsert = [];
 
+            $batchIds = collect($data['items'])->pluck('batch_id')->unique();
+            $batches = ProductBatch::whereIn('id', $batchIds)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
             foreach ($data['items'] as $item) {
                 $product = Product::findOrFail($item['product_id']);
-                $batch = ProductBatch::findOrFail($item['batch_id']);
+                $batch = $batches[$item['batch_id']] ?? null;
+
+                if (!$batch || $batch->product_id !== (int)$item['product_id']) {
+                    throw new \Exception("Batch tidak valid untuk produk ini.");
+                }
+
+                if ($batch->exp_date && Carbon::parse($batch->exp_date)->startOfDay()->lt(now()->startOfDay())) {
+                    throw new \Exception("Batch {$batch->batch_number} untuk produk {$product->product_name} sudah kadaluarsa (Exp: {$batch->exp_date}).");
+                }
 
                 if ($batch->stock < $item['qty']) {
                     throw new \Exception("Stok tidak mencukupi untuk produk: {$product->product_name} (Batch: {$batch->batch_number}). Sisa stok: {$batch->stock}");
@@ -236,7 +250,7 @@ class TransactionController extends Controller
             foreach ($itemsToInsert as $itemData) {
                 $transaction->items()->create($itemData);
 
-                $batch = ProductBatch::findOrFail($itemData['batch_id']);
+                $batch = $batches[$itemData['batch_id']];
                 $batch->decrement('stock', $itemData['qty']);
             }
 
@@ -330,6 +344,14 @@ class TransactionController extends Controller
 
     public function update(Request $request, $id)
     {
+        $user = Auth::user();
+
+        $transaction = Transaction::findOrFail($id);
+
+        if ($user->role === 'cashier' && $transaction->user_id !== $user->id) {
+            return response()->json(['message' => 'Akses ditolak'], 403);
+        }
+
         $data = $request->validate([
             'customer_name' => 'nullable|string|max:255',
             'note' => 'nullable|string',
@@ -340,14 +362,9 @@ class TransactionController extends Controller
             'note.string' => 'Catatan tidak valid.',
         ]);
 
-        $user = Auth::user();
-
         DB::beginTransaction();
 
         try {
-
-            $transaction = Transaction::findOrFail($id);
-
             if ($transaction->status === 'void') {
                 return response()->json([
                     'success' => false,
@@ -385,6 +402,23 @@ class TransactionController extends Controller
 
     public function cancel(Request $request, $id)
     {
+        $user = Auth::user();
+
+        $transaction = Transaction::with('items')->findOrFail($id);
+
+        if ($user->role === 'cashier') {
+            $transactionDate = Carbon::parse($transaction->transaction_date)
+                ->setTimezone(config('app.timezone'))
+                ->startOfDay();
+            $today = now()->setTimezone(config('app.timezone'))->startOfDay();
+
+            if (!$transactionDate->equalTo($today)) {
+                return response()->json([
+                    'message' => 'Pembatalan hanya dapat dilakukan pada hari transaksi.'
+                ], 400);
+            }
+        }
+
         $data = $request->validate([
             'void_reason' => 'required|string|max:255',
         ],
@@ -394,13 +428,9 @@ class TransactionController extends Controller
             'void_reason.max' => 'Alasan pembatalan mencapai batas karakter maksimal.',
         ]);
 
-        $user = Auth::user();
-
         DB::beginTransaction();
 
         try {
-            $transaction = Transaction::with('items')->findOrFail($id);
-
             if ($transaction->status === 'void') {
                 return response()->json([
                     'success' => false,
@@ -416,7 +446,7 @@ class TransactionController extends Controller
             foreach ($transaction->items as $item) {
                 if ($item->batch_id) {
 
-                    $batch = ProductBatch::findOrFail($item->batch_id);
+                    $batch = ProductBatch::lockForUpdate()->findOrFail($item->batch_id);
                     $batch->increment('stock', $item->qty);
                 }
             }

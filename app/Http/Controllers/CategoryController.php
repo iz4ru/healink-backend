@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Models\Log;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -29,8 +30,8 @@ class CategoryController extends Controller
         $user = Auth::user();
 
         DB::transaction(function () use ($data, $user, &$item) {
-            $item = Category::create(['name' => $data['name']]); 
-    
+            $item = Category::create(['name' => $data['name']]);
+
             Log::create([
                 'user_id' => $user->id,
                 'activity' => 'Tambah kategori',
@@ -38,15 +39,17 @@ class CategoryController extends Controller
             ]);
         });
 
+        Cache::forget('categories_all');
+
         return response()->json(['success' => true, 'message' => 'Berhasil ditambahkan', 'data' => $item]);
     }
 
     public function update(Request $request, $id) {
         $cleanName = ucwords(strtolower(trim($request->name)));
         $request->merge(['name' => $cleanName]);
-        
+
         $item = Category::findOrFail($id);
-        
+
         $data = $request->validate(
         [
             'name' => [
@@ -69,13 +72,15 @@ class CategoryController extends Controller
 
         DB::transaction(function () use ($id, $data, $user, $item, $oldName) {
             $item->update(['name' => $data['name']]);
-    
+
             Log::create([
                 'user_id' => $user->id,
                 'activity' => 'Ubah nama kategori',
                 'detail' => $user->name . ' mengubah nama kategori ' . $oldName . ' menjadi ' . $item->name . ' (ID: ' . $id . ')',
             ]);
         });
+
+        Cache::forget('categories_all');
 
         return response()->json(['success' => true, 'message' => 'Berhasil diperbarui']);
     }
@@ -88,13 +93,15 @@ class CategoryController extends Controller
 
         DB::transaction(function () use ($id, $user, $item, $name) {
             $item->delete();
-            
+
             Log::create([
                 'user_id' => $user->id,
                 'activity' => 'Hapus kategori',
                 'detail' => $user->name . ' menghapus kategori ' . $name . ' (ID: ' . $id . ')',
             ]);
         });
+
+        Cache::forget('categories_all');
 
         return response()->json(['success' => true, 'message' => 'Berhasil dihapus']);
     }

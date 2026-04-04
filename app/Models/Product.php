@@ -17,16 +17,27 @@ class Product extends Model
     protected $table = 'products';
 
     protected $fillable = [
-        'category_id',
         'unit_id',
         'product_name',
         'barcode',
-        'unit',
         'sell_price',
         'description',
         'min_stock',
+        'image_path',
         'image_url',
     ];
+
+    protected $appends = ['image_url'];
+
+    public function getImageUrlAttribute(): ?string
+    {
+        if (!$this->image_path) return null;
+
+        $baseUrl = rtrim(env('SUPABASE_PUBLIC_URL'), '/');
+        $bucket = env('SUPABASE_BUCKET');
+
+        return "{$baseUrl}/{$bucket}/{$this->image_path}";
+    }
 
     protected static function booted() {
         static::deleting(function ($product) {
@@ -36,7 +47,7 @@ class Product extends Model
 
         });
     }
-    
+
     public function batches(): HasMany
     {
         return $this->hasMany(ProductBatch::class, 'product_id');
@@ -46,7 +57,7 @@ class Product extends Model
     {
         return $this->belongsToMany(Category::class, 'product_categories', 'product_id', 'category_id');
     }
-    
+
     public function unit(): BelongsTo
     {
         return $this->belongsTo(Unit::class, 'unit_id');

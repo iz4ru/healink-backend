@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Unit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -45,8 +46,8 @@ class ProductController extends Controller
             }
 
             if ($request->filled('search')) {
-                $search = strtolower(trim($request->search)); 
-                
+                $search = strtolower(trim($request->search));
+
                 $query->where(function($q) use ($search) {
                     $q->where('barcode', $search)
                         ->orWhereRaw('LOWER(product_name) LIKE ?', ["%{$search}%"]);
@@ -75,11 +76,13 @@ class ProductController extends Controller
 
     public function indexCategory()
     {
+        $categories = Cache::remember('categories_all', 3600, fn() => Category::all());
+
         return response()->json(
             [
                 'status' => true,
                 'message' => 'GET data sukses',
-                'data' => ['categories' => Category::all()],
+                'data' => ['categories' => $categories],
             ],
             200,
         );
@@ -87,11 +90,13 @@ class ProductController extends Controller
 
     public function indexUnit()
     {
+        $units = Cache::remember('units_all', 3600, fn() => Unit::all());
+
         return response()->json(
             [
                 'status' => true,
                 'message' => 'GET data sukses',
-                'data' => ['units' => Unit::all()],
+                'data' => ['units' => $units],
             ],
             200,
         );
@@ -185,10 +190,11 @@ class ProductController extends Controller
                 'min_stock' => $data['min_stock'] ?? 0,
                 'description' => $data['description'] ?? null,
                 'image_url' => $imageUrl,
+                'image_path'   => $imagePath,
             ]);
 
             $product->categories()->sync($request->category_ids);
-            
+
             $product->batches()->create([
                 'batch_number' => $data['batch']['batch_number'] ?? null,
                 'exp_date' => $data['batch']['exp_date'] ?? null,
@@ -286,8 +292,8 @@ class ProductController extends Controller
                     'numeric',
                     'min:0',
                     function ($attribute, $value, $fail) use ($request, $product) {
-                        $buyPrice = $request->input('buy_price', optional($product->batches()->first())->buy_price ?? 0);
-                        if ($value < $buyPrice) {
+                        $minBuyPrice = $product->batches()->whereNull('deleted_at')->min('buy_price') ?? 0;
+                        if ($value < $minBuyPrice) {
                             $fail('Harga jual tidak boleh di bawah harga beli.');
                         }
                     },
@@ -358,19 +364,12 @@ class ProductController extends Controller
             DB::beginTransaction();
 
             if ($request->hasFile('image')) {
-                if ($product->image_url && str_contains($product->image_url, 'storage/products/')) {
-                    $oldPath = explode('products/', $product->image_url)[1] ?? null;
-                    if ($oldPath) {
-                        Storage::disk($disk)->delete('products/' . $oldPath);
-                    }
+                if ($product->image_path) {
+                    Storage::disk($disk)->delete($product->image_path);
                 }
 
                 $newImagePath = $request->file('image')->store('products', $disk);
-                $bucket = env('SUPABASE_BUCKET');
-                $baseUrl = rtrim(env('SUPABASE_PUBLIC_URL'), '/');
-                $newImageUrl = $baseUrl . '/' . $bucket . '/' . $newImagePath;
-
-                $product->image_url = $newImageUrl;
+                $product->image_path = $newImagePath;
             }
 
             $product->update([
@@ -404,7 +403,14 @@ class ProductController extends Controller
 
                 $changes[] = "menambahkan batch baru ({$data['new_batch_number']}) dengan stok {$data['stock_qty']}";
             } elseif (!empty($data['batch_id'])) {
-                $batch = $product->batches()->where('id', $data['batch_id'])->first();
+                $batch = $product->batches()
+                    ->where('id', $data['batch_id'])
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$batch || $batch->product_id !== $product->id) {
+                    throw new \Exception("Batch tidak valid untuk produk ini.");
+                }
 
                 if ($batch) {
                     if (!empty($data['buy_price']) && $data['buy_price'] != $batch->buy_price) {
@@ -480,11 +486,8 @@ class ProductController extends Controller
                 $product->delete();
                 $message = 'Produk diarsipkan (Soft Delete) karena sudah memiliki riwayat penjualan.';
             } else {
-                if ($product->image_url) {
-                    $path = parse_url($product->image_url, PHP_URL_PATH);
-                    $filename = basename($path);
-
-                    Storage::disk('supabase')->delete('products/' . $filename);
+                if ($product->image_path) {
+                    Storage::disk('supabase')->delete($product->image_path);
                 }
 
                 $product->forceDelete();

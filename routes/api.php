@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProductBatchController;
 use App\Http\Controllers\ProductController;
@@ -20,7 +21,9 @@ Route::middleware(['auth:sanctum', 'check.active'])->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    // Notifikasi
+    Route::post('/refresh-token', [AuthController::class, 'refresh']);
+
+    # Notifikasi
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::get('/notifications/unread', [NotificationController::class, 'checkUnread']);
     Route::patch('/notifications/mark-multiple-read', [NotificationController::class, 'markMultipleAsRead']);
@@ -32,8 +35,12 @@ Route::middleware(['auth:sanctum', 'check.active'])->group(function () {
 
         Route::get('/products', [ProductController::class, 'index']);
         Route::get('/products/{id}', [ProductController::class, 'show'])->whereNumber('id');
+        Route::get('/products/{id}/best-batch', [ProductBatchController::class, 'getBestBatch'])->whereNumber('id');
+        Route::put('/batches/{id}', [ProductBatchController::class, 'update'])->whereNumber('id');
+        Route::delete('/batches/{id}', [ProductBatchController::class, 'destroy'])->whereNumber('id');
         Route::get('/transactions', [TransactionController::class, 'index']);
         Route::get('/transactions/{id}', [TransactionController::class, 'show'])->whereNumber('id');
+        Route::post('/transactions/{id}/cancel', [TransactionController::class, 'cancel'])->whereNumber('id');
         Route::get('/units', [ProductController::class, 'indexUnit']);
         Route::get('/categories', [ProductController::class, 'indexCategory']);
 
@@ -62,30 +69,32 @@ Route::middleware(['auth:sanctum', 'check.active'])->group(function () {
 
     Route::middleware('check.role:admin')->group(function () {
 
+        # Dashboard
+        Route::get('/admin/dashboard', [DashboardController::class, 'indexAdmin']);
+
         # Products
         Route::put('/products/{id}', [ProductController::class, 'update'])->whereNumber('id');
         Route::delete('/products/{id}', [ProductController::class, 'destroy'])->whereNumber('id');
         Route::post('/create/product', [ProductController::class, 'store']);
 
-        // CRUD Kategori
+        # CRUD Kategori
         Route::post('/categories', [CategoryController::class, 'store']);
         Route::put('/categories/{id}', [CategoryController::class, 'update'])->whereNumber('id');
         Route::delete('/categories/{id}', [CategoryController::class, 'destroy'])->whereNumber('id');
 
-        // CRUD Unit (Jenis Satuan)
+        # CRUD Unit (Jenis Satuan)
         Route::post('/units', [UnitController::class, 'store']);
         Route::put('/units/{id}', [UnitController::class, 'update'])->whereNumber('id');
         Route::delete('/units/{id}', [UnitController::class, 'destroy'])->whereNumber('id');
 
-        // CRUD Batch produk
+        # CRUD Batch produk
         Route::put('/batches/{id}', [ProductBatchController::class, 'update'])->whereNumber('id');
         Route::delete('/batches/{id}', [ProductBatchController::class, 'destroy'])->whereNumber('id');
 
-        // Transaksi
+        # Transaksi
         Route::get('/cashiers', [TransactionController::class, 'indexCashier']);
         Route::get('/transactions/export', [TransactionController::class, 'export']);
         Route::put('/transactions/{id}', [TransactionController::class, 'update'])->whereNumber('id');
-        Route::post('/transactions/{id}/cancel', [TransactionController::class, 'cancel'])->whereNumber('id');
 
     });
 

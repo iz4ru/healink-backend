@@ -20,6 +20,7 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->integer('min_stock')->default(10);
             $table->text('image_url')->nullable();
+            $table->string('image_path')->nullable();
             $table->softDeletes('deleted_at');
             $table->timestamps();
         });
