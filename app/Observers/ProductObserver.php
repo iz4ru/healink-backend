@@ -41,7 +41,13 @@ class ProductObserver
     public function updated(Product $product): void
     {
         if ($product->wasChanged('sell_price')) {
-            $this->notifyPriceUpdateToCashiers($product);
+
+            $oldPrice = (float) $product->getOriginal('sell_price');
+            $newPrice = (float) $product->sell_price;
+
+            if ($oldPrice !== $newPrice) {
+                $this->notifyPriceUpdateToCashiers($product);
+            }
         }
     }
 

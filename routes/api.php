@@ -17,7 +17,7 @@ Route::middleware('guest')->group(function () {
 
 });
 
-Route::middleware(['auth:sanctum', 'check.active'])->group(function () {
+Route::middleware(['auth:sanctum', 'check.active', 'update.lastseen'])->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
 
@@ -30,6 +30,8 @@ Route::middleware(['auth:sanctum', 'check.active'])->group(function () {
     Route::patch('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
     Route::patch('/notifications/{id}/read', [NotificationController::class, 'markAsRead'])->whereNumber('id');
     Route::post('/fcm-token', [NotificationController::class, 'storeToken']);
+
+    Route::get('/products/stock-alerts', [ProductController::class, 'getStockAlerts']);
 
     Route::middleware('check.role:admin,cashier')->group(function () {
 
@@ -63,7 +65,11 @@ Route::middleware(['auth:sanctum', 'check.active'])->group(function () {
 
     Route::middleware('check.role:cashier')->group(function () {
 
+        Route::get('/cashier/dashboard', [DashboardController::class, 'indexCashier']);
+
         Route::post('/transactions', [TransactionController::class, 'store']);
+
+        Route::post('/products/validate-cart', [ProductController::class, 'validateCart']);
 
     });
 
@@ -75,7 +81,9 @@ Route::middleware(['auth:sanctum', 'check.active'])->group(function () {
         # Products
         Route::put('/products/{id}', [ProductController::class, 'update'])->whereNumber('id');
         Route::delete('/products/{id}', [ProductController::class, 'destroy'])->whereNumber('id');
+        Route::post('/products/{id}/restore', [ProductController::class, 'restore']);
         Route::post('/create/product', [ProductController::class, 'store']);
+        Route::get('/products/check-name', [ProductController::class, 'checkName']);
 
         # CRUD Kategori
         Route::post('/categories', [CategoryController::class, 'store']);

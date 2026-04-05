@@ -8,6 +8,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class DashboardController extends Controller
 {
@@ -17,6 +18,9 @@ class DashboardController extends Controller
         $tz = config('app.timezone', 'Asia/Jakarta');
 
         Carbon::setLocale('id');
+
+        $now = Carbon::now()->setTimezone($tz);
+        $onlineThreshold = $now->copy()->subMinutes(1);
 
         // ─── 1. TODAY'S STATS ───
         $todayStart = Carbon::now()->setTimezone($tz)->startOfDay();
@@ -91,11 +95,10 @@ class DashboardController extends Controller
             ->where('is_active', true)
             ->count();
 
-        $cashierList = User::where('role', 'cashier')
+        $onlineCashiers = User::where('role', 'cashier')
             ->where('is_active', true)
-            ->select('id', 'name')
-            ->get()
-            ->map(fn($u) => ['id' => $u->id, 'name' => $u->name]);
+            ->where('last_seen', '>=', $onlineThreshold)
+            ->get(['id', 'name', 'last_seen']);
 
         // ─── RETURN UNIFIED RESPONSE ───
         return response()->json([
@@ -115,7 +118,100 @@ class DashboardController extends Controller
                 ],
                 'cashiers' => [
                     'active_count' => $activeCashiers,
-                    'online_list' => $cashierList,
+                    'online_count' => $onlineCashiers->count(),
+                    'online_list' => $onlineCashiers->map(fn($c) => [
+                        'id' => $c->id,
+                        'name' => $c->name,
+                        'last_seen' => Carbon::parse($c->last_seen)?->toIso8601String(),
+                    ]),
+                ],
+            ],
+        ]);
+    }
+
+    public function indexCashier(Request $request)
+    {
+        $user = Auth::user();
+        $tz = config('app.timezone', 'Asia/Jakarta');
+
+        Carbon::setLocale('id');
+
+        // ─── 1. TODAY'S STATS (hanya transaksi kasir ini) ───
+        $todayStart = Carbon::now()->setTimezone($tz)->startOfDay();
+        $todayEnd = Carbon::now()->setTimezone($tz)->endOfDay();
+        $yesterdayStart = Carbon::now()->setTimezone($tz)->subDay()->startOfDay();
+        $yesterdayEnd = Carbon::now()->setTimezone($tz)->subDay()->endOfDay();
+
+        $todayStats = Transaction::where('status', 'sale')
+            ->where('user_id', $user->id) // 🔥 Filter by cashier
+            ->whereBetween('transaction_date', [$todayStart, $todayEnd])
+            ->selectRaw('COUNT(*) as count, COALESCE(SUM(subtotal), 0) as total')
+            ->first();
+
+        $yesterdayStats = Transaction::where('status', 'sale')
+            ->where('user_id', $user->id)
+            ->whereBetween('transaction_date', [$yesterdayStart, $yesterdayEnd])
+            ->selectRaw('COUNT(*) as count, COALESCE(SUM(subtotal), 0) as total')
+            ->first();
+
+        $percentChange = $yesterdayStats->total > 0
+            ? round((($todayStats->total - $yesterdayStats->total) / $yesterdayStats->total) * 100)
+            : ($todayStats->count > 0 ? 100 : 0);
+
+        // ─── 2. RECENT TRANSACTIONS (5 terakhir, kasir ini) ───
+        $recentTransactions = Transaction::where('user_id', $user->id)
+            ->orderBy('transaction_date', 'desc')
+            ->take(5)
+            ->get(['id', 'trx_no', 'subtotal', 'transaction_date', 'status']);
+
+        // ─── 3. STOCK ALERTS (sama seperti admin, kasir perlu tahu) ───
+        $lowStock = Product::with('batches')
+            ->whereNull('deleted_at')
+            ->get()
+            ->filter(fn($p) =>
+                $p->batches->whereNull('deleted_at')->sum('stock') <= $p->min_stock &&
+                $p->batches->whereNull('deleted_at')->sum('stock') > 0
+            )
+            ->count();
+
+        $nearExpiry = ProductBatch::where('exp_date', '<=', Carbon::now()->setTimezone($tz)->addDays(30)->endOfDay())
+            ->where('exp_date', '>=', Carbon::now()->setTimezone($tz)->startOfDay())
+            ->where('stock', '>', 0)
+            ->whereNull('deleted_at')
+            ->count();
+
+        $outOfStock = Product::with('batches')
+            ->whereNull('deleted_at')
+            ->get()
+            ->filter(fn($p) => $p->batches->whereNull('deleted_at')->sum('stock') <= 0)
+            ->count();
+
+        $expired = ProductBatch::where('exp_date', '<', Carbon::now()->setTimezone($tz)->startOfDay())
+            ->where('stock', '>', 0)
+            ->whereNull('deleted_at')
+            ->count();
+
+        // ─── RETURN RESPONSE ───
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'today' => [
+                    'transaction_count' => $todayStats->count ?? 0,
+                    'total_amount' => (float) ($todayStats->total ?? 0),
+                    'percent_change' => $percentChange,
+                ],
+                'recent_transactions' => $recentTransactions->map(fn($t) => [
+                    'id' => $t->id,
+                    'trx_no' => $t->trx_no,
+                    'subtotal' => (float) $t->subtotal,
+                    'date' => $t->transaction_date,
+                    'status' => $t->status,
+                ]),
+                'stock_alerts' => [
+                    'low_stock' => $lowStock,
+                    'near_expiry' => $nearExpiry,
+                    'out_of_stock' => $outOfStock,
+                    'expired' => $expired,
                 ],
             ],
         ]);

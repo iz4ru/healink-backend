@@ -16,14 +16,13 @@ class ProductBatchController extends Controller
         $batch = ProductBatch::with('product')->findOrFail($id);
 
         $data = $request->validate([
-            'batch_number' => 'required|string|max:255',
-            'exp_date' => 'nullable|date|after_or_equal:today',
+            'batch_number' => 'nullable|string|max:255',
+            'exp_date' => 'nullable|date',
             'buy_price' => 'nullable|numeric|min:0',
         ],
         [
-            'batch_number.required' => 'Nomor batch harus diisi',
             'batch_number.string' => 'Penamaan nomor batch tidak valid',
-            'exp_date.after_or_equal' => 'Tanggal kadaluarsa tidak boleh di masa lalu',
+            'exp_date.date' => 'Format tanggal kadaluarsa tidak valid',
             'buy_price.min' => 'Harga beli harus bernilai diatas angka nol',
             'buy_price.numeric' => 'Harga beli harus berupa angka',
         ]);
@@ -64,9 +63,14 @@ class ProductBatchController extends Controller
 
         $batch = ProductBatch::where('product_id', $productId)
             ->where('stock', '>=', $qty)
-            ->where('exp_date', '>=', now()->startOfDay())
             ->whereNull('deleted_at')
-            ->orderBy('exp_date', 'asc')
+
+            ->where(function ($query) {
+                $query->whereNull('exp_date')
+                    ->orWhere('exp_date', '>=', now()->startOfDay());
+            })
+
+            ->orderByRaw('exp_date IS NULL, exp_date ASC')
             ->orderBy('created_at', 'asc')
             ->first();
 
@@ -83,9 +87,9 @@ class ProductBatchController extends Controller
             'data' => [
                 'batch_id' => $batch->id,
                 'batch_number' => $batch->batch_number,
-                'exp_date' => Carbon::parse($batch->exp_date)?->toIso8601String(),
+                'exp_date' => $batch->exp_date ? Carbon::parse($batch->exp_date)->toIso8601String() : null,
                 'available_stock' => $batch->stock,
-                'buy_price' => $batch->buy_price, // Opsional: untuk kalkulasi margin
+                'buy_price' => $batch->buy_price,
             ]
         ]);
     }

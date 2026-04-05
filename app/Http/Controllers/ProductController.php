@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Models\Log;
 use App\Models\Product;
 use App\Models\Unit;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -74,6 +75,104 @@ class ProductController extends Controller
         }
     }
 
+    public function validateCart(Request $request)
+    {
+        $request->validate([
+            'product_ids' => 'required|array',
+            'product_ids.*' => 'integer',
+        ]);
+
+        // Produk soft-deleted otomatis tidak ikut karena tidak pakai withTrashed()
+        $validIds = Product::whereIn('id', $request->product_ids)
+            ->pluck('id')
+            ->toArray();
+
+        return response()->json([
+            'success'   => true,
+            'valid_ids' => $validIds,
+        ]);
+    }
+
+    public function getStockAlerts(Request $request)
+    {
+        try {
+            $filtersString = $request->query('filters', '');
+            $filters = empty($filtersString) ? [] : explode(',', $filtersString);
+            $search = $request->query('search');
+            $tz = config('app.timezone', 'Asia/Jakarta');
+
+            // Jika tidak ada filter, return empty (konsisten dengan format index)
+            if (empty($filters)) {
+                return response()->json([
+                    'success' => true,
+                    'data' => [],
+                ], 200);
+            }
+
+            // Query dasar: sama seperti index()
+            $query = Product::with(['categories', 'unit', 'batches' => fn($q) => $q->whereNull('deleted_at')])
+                ->whereNull('products.deleted_at');
+
+            // Search: sama seperti index()
+            if ($search) {
+                $search = strtolower(trim($search));
+                $query->where(function($q) use ($search) {
+                    $q->where('barcode', $search)
+                    ->orWhereRaw('LOWER(product_name) LIKE ?', ["%{$search}%"]);
+                });
+            }
+
+            // Ambil semua produk, lalu filter di PHP (karena logic kompleks per batch)
+            $products = $query->get()->filter(function($product) use ($filters, $tz) {
+                $totalStock = $product->batches->whereNull('deleted_at')->sum('stock');
+
+                foreach ($filters as $filter) {
+                    $filter = trim($filter);
+
+                    switch ($filter) {
+                        case 'low_stock':
+                            if ($totalStock <= $product->min_stock && $totalStock > 0) return true;
+                            break;
+                        case 'near_expiry':
+                            $hasNearExpiry = $product->batches->contains(fn($b) =>
+                                $b->exp_date &&
+                                Carbon::parse($b->exp_date)->setTimezone($tz)->startOfDay() >= Carbon::now()->setTimezone($tz)->startOfDay() &&
+                                Carbon::parse($b->exp_date)->setTimezone($tz)->endOfDay() <= Carbon::now()->setTimezone($tz)->addDays(30)->endOfDay() &&
+                                $b->stock > 0
+                            );
+                            if ($hasNearExpiry) return true;
+                            break;
+                        case 'out_of_stock':
+                            if ($totalStock <= 0) return true;
+                            break;
+                        case 'expired':
+                            $hasExpired = $product->batches->contains(fn($b) =>
+                                $b->exp_date &&
+                                Carbon::parse($b->exp_date)->setTimezone($tz)->startOfDay() < Carbon::now()->setTimezone($tz)->startOfDay() &&
+                                $b->stock > 0
+                            );
+                            if ($hasExpired) return true;
+                            break;
+                    }
+                }
+                return false;
+            });
+
+            // Return format SAMA PERSIS dengan index()
+            return response()->json([
+                'success' => true,
+                'data' => $products->values(), // Reset keys agar JSON array valid
+            ], 200);
+
+        } catch (\Exception $e) {
+            // Error handling SAMA PERSIS dengan index()
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function indexCategory()
     {
         $categories = Cache::remember('categories_all', 3600, fn() => Category::all());
@@ -109,8 +208,18 @@ class ProductController extends Controller
 
             $data = $request->validate(
             [
-                'product_name' => 'required|string|max:255|unique:products,product_name',
-                'barcode' => 'nullable|string|max:255|unique:products,barcode',
+                'product_name' => [
+                    'required',
+                    'string',
+                    'max:255',
+                    Rule::unique('products', 'product_name')->whereNull('deleted_at'),
+                ],
+                'barcode' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                    Rule::unique('products', 'barcode')->whereNull('deleted_at'),
+                ],
                 'category_ids' => 'required|array',
                 'category_ids.*' => 'exists:categories,id',
                 'unit_id' => 'required|exists:units,id',
@@ -141,7 +250,7 @@ class ProductController extends Controller
             ],
             [
                 'product_name.required' => 'Nama produk tidak boleh kosong.',
-                'product_name.unique' => 'Nama produk sudah terdaftar.',
+                'product_name.unique' => 'Nama produk sudah terdaftar untuk produk aktif.',
                 'barcode.unique' => 'Barcode ini sudah terdaftar untuk produk lain.',
                 'sell_price.required' => 'Harga jual wajib diisi.',
                 'category_ids.required' => 'Silakan pilih kategori produk.',
@@ -153,6 +262,20 @@ class ProductController extends Controller
                 'image.max' => 'Ukuran foto maksimal adalah 2MB.',
             ],
         );
+
+        if (!empty($data['barcode'])) {
+            $trashedBarcode = Product::onlyTrashed()
+                ->where('barcode', $data['barcode'])
+                ->exists();
+
+            if ($trashedBarcode) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Barcode ini sudah digunakan untuk produk yang diarsipkan.',
+                    'errors' => ['barcode' => ['Barcode sudah terdaftar (produk diarsipkan)']]
+                ], 422);
+            }
+        }
 
         $imagePath = null;
         $imageUrl = null;
@@ -235,6 +358,59 @@ class ProductController extends Controller
         }
     }
 
+    public function checkName(Request $request)
+    {
+        $name = trim($request->query('name', ''));
+        $excludeId = $request->query('exclude_id');
+
+        if (empty($name)) {
+            return response()->json([
+                'active' => false,
+                'trashed' => false,
+                'trashed_info' => null,
+                'trashed_count' => 0,
+            ]);
+        }
+
+        $activeQuery = Product::where('product_name', $name)->whereNull('deleted_at');
+        if ($excludeId) {
+            $activeQuery->where('id', '!=', $excludeId);
+        }
+        $isActive = $activeQuery->exists();
+
+        $trashedQuery = Product::onlyTrashed()->where('product_name', $name);
+        if ($excludeId) {
+            $trashedQuery->where('id', '!=', $excludeId);
+        }
+
+        $trashedProducts = $trashedQuery
+            ->orderBy('deleted_at', 'desc')
+            ->get(['id', 'deleted_at', 'barcode', 'created_at']);
+
+        $isTrashed = $trashedProducts->isNotEmpty();
+        $trashedCount = $trashedProducts->count();
+
+
+        $firstTrashed = $trashedProducts->first();
+        $trashedInfo = $firstTrashed ? [
+            'id' => $firstTrashed->id,
+            'deleted_at' => $firstTrashed->deleted_at?->format('d M Y'),
+            'barcode' => $firstTrashed->barcode ?? 'Tidak ada barcode',
+        ] : null;
+
+        return response()->json([
+            'active' => $isActive,
+            'trashed' => $isTrashed,
+            'trashed_info' => $trashedInfo,
+            'trashed_count' => $trashedCount,
+            'trashed_products' => $trashedProducts->map(fn($p) => [
+                'id' => $p->id,
+                'deleted_at' => $p->deleted_at?->format('d M Y H:i'),
+                'barcode' => $p->barcode ?? 'Tidak ada barcode',
+            ])->toArray()
+        ]);
+    }
+
     public function show($id)
     {
         try {
@@ -281,9 +457,18 @@ class ProductController extends Controller
                     'required',
                     'string',
                     'max:255',
-                    Rule::unique('products', 'product_name')->ignore($product->id),
+                    Rule::unique('products', 'product_name')
+                        ->whereNull('deleted_at')
+                        ->ignore($id),
                 ],
-                'barcode' => 'nullable|string|max:255|unique:products,barcode,' . $id,
+                'barcode' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                    Rule::unique('products', 'barcode')
+                        ->whereNull('deleted_at')
+                        ->ignore($id),
+                ],
                 'category_ids' => 'required|array',
                 'category_ids.*' => 'exists:categories,id',
                 'unit_id' => 'required|exists:units,id',
@@ -328,6 +513,20 @@ class ProductController extends Controller
                 'stock_qty.min' => 'Jumlah penyesuaian stok minimal adalah 1.',
             ],
         );
+
+        if (!empty($data['barcode'])) {
+            $trashedBarcode = Product::onlyTrashed()
+                ->where('barcode', $data['barcode'])
+                ->exists();
+
+            if ($trashedBarcode) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Barcode ini sudah digunakan untuk produk yang diarsipkan.',
+                    'errors' => ['barcode' => ['Barcode sudah terdaftar (produk diarsipkan)']]
+                ], 422);
+            }
+        }
 
         $disk = 'supabase';
         $user = Auth::user();
@@ -471,6 +670,38 @@ class ProductController extends Controller
                 500,
             );
         }
+    }
+
+    public function restore($id)
+    {
+        $product = Product::withTrashed()->findOrFail($id);
+
+        $conflict = Product::whereNull('deleted_at')
+            ->where('id', '!=', $id)
+            ->where(function($q) use ($product) {
+                $q->where('product_name', $product->product_name)
+                ->orWhere('barcode', $product->barcode);
+            })->first();
+
+        if ($conflict) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tidak dapat restore. Nama/barcode sudah digunakan produk aktif.',
+            ], 422);
+        }
+
+        $product->restore();
+
+        Log::create([
+            'user_id' => Auth::id(),
+            'activity' => 'Restore produk',
+            'detail' => Auth::user()->name . ' merestore produk ' . $product->product_name,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Produk berhasil direstore.',
+        ]);
     }
 
     public function destroy($id)
