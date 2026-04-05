@@ -29,12 +29,12 @@ class SendDailySalesReport extends Command
      */
     public function handle()
     {
-        $today = Carbon::today();
+        $today = Carbon::today('Asia/Jakarta');
 
         // Ambil semua transaksi sale hari ini
         $transactions = Transaction::with('items.product')
             ->where('status', 'sale')
-            ->whereDate('transaction_date', $today)
+            ->whereDate('transaction_date', $today->toDateString())
             ->get();
 
         // Kalau tidak ada transaksi hari ini, tetap kirim ringkasan
