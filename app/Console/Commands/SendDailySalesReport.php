@@ -31,21 +31,18 @@ class SendDailySalesReport extends Command
     {
         $today = Carbon::today('Asia/Jakarta');
 
-        // Ambil semua transaksi sale hari ini
         $transactions = Transaction::with('items.product')
             ->where('status', 'sale')
             ->whereDate('transaction_date', $today->toDateString())
             ->get();
 
-        // Kalau tidak ada transaksi hari ini, tetap kirim ringkasan
         $totalRevenue      = $transactions->sum('total_amount');
         $totalTransactions = $transactions->count();
 
-        // Produk terlaris — aggregate dari items
         $productSales = [];
         foreach ($transactions as $trx) {
             foreach ($trx->items as $item) {
-                $name = $item->product_name; // pakai product_name di TransactionItem
+                $name = $item->product_name;
                 if (!isset($productSales[$name])) {
                     $productSales[$name] = 0;
                 }
@@ -53,15 +50,17 @@ class SendDailySalesReport extends Command
             }
         }
 
-        // Sort descending, ambil top 3
         arsort($productSales);
         $topProducts = array_slice($productSales, 0, 3, true);
 
-        // Format pesan
         $formattedDate    = $today->translatedFormat('d F Y');
         $formattedRevenue = 'Rp' . number_format($totalRevenue, 0, ',', '.');
 
         $title = '📊 Ringkasan Penjualan ' . $formattedDate;
+
+        foreach ($topProducts as $name => $qty) {
+            $this->info("  - {$name}: {$qty} pcs");
+        }
 
         if ($totalTransactions === 0) {
             $body = "Tidak ada transaksi hari ini.";
@@ -69,15 +68,15 @@ class SendDailySalesReport extends Command
             $topProductLines = '';
             $rank = 1;
             foreach ($topProducts as $name => $qty) {
-                $topProductLines .= "\n  {$rank}. {$name} ({$qty} pcs)";
+                $topProductLines .= "\n{$rank}. {$name} ({$qty} pcs)";
                 $rank++;
             }
 
-            $body = "Total: {$formattedRevenue} dari {$totalTransactions} transaksi."
-                    . "\nProduk terlaris:{$topProductLines}";
+        $body = "Total: {$formattedRevenue} dari {$totalTransactions} transaksi.\n\n"
+            . "Produk terlaris:\n"
+            . trim($topProductLines);
         }
 
-        // Kirim ke semua Owner aktif
         $owners = User::where('role', 'owner')
             ->where('is_active', true)
             ->get();

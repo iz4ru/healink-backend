@@ -2,12 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SendBatchExpiryNotificationJob;
 use App\Models\Notification;
 use App\Models\ProductBatch;
 use App\Models\User;
-use App\Services\NotificationService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class CheckExpiredBatches extends Command
 {
@@ -30,7 +31,6 @@ class CheckExpiredBatches extends Command
      */
     public function handle()
     {
-        // Ambil semua Admin & Owner
         $recipients = User::whereIn('role', ['admin', 'owner'])
             ->where('is_active', true)
             ->get();
@@ -40,22 +40,13 @@ class CheckExpiredBatches extends Command
             return Command::SUCCESS;
         }
 
-        $today = Carbon::today();
-        $in7Days = $today->copy()->addDays(7);
-        $in30Days = $today->copy()->addDays(30);
+        $today = Carbon::today(config('app.timezone'));
 
-        // Ambil batch yang relevan sekaligus — 1 query
-        $batches = ProductBatch::with('product')
-            ->whereNull('deleted_at')
-            ->where('stock', '>', 0) // Hanya yang masih ada stoknya
-            ->where(function ($query) use ($today, $in30Days) {
-                $query->whereDate('exp_date', '<', $today)         // Sudah expired
-                      ->orWhereDate('exp_date', $today)            // Expired hari ini
-                      ->orWhereBetween('exp_date', [               // H-7 dan H-30
-                            $today->copy()->addDay(),
-                            $in30Days,
-                        ]);
-            })
+        $batches = ProductBatch::with(['product' => fn($q) => $q->select('id', 'product_name')])
+            ->whereNull('product_batches.deleted_at')
+            ->whereHas('product')
+            ->where('stock', '>', 0)
+            ->whereDate('exp_date', '<=', $today->copy()->addDays(30))
             ->get();
 
         if ($batches->isEmpty()) {
@@ -63,18 +54,22 @@ class CheckExpiredBatches extends Command
             return Command::SUCCESS;
         }
 
-        $notifCount = 0;
+        $dispatchedCount = 0;
+        $skippedCount = 0;
 
         foreach ($batches as $batch) {
             $expDate = Carbon::parse($batch->exp_date);
-            $daysLeft = $today->diffInDays($expDate, false); // false = bisa negatif
-            $productName = $batch->product->product_name ?? 'Produk tidak diketahui';
+            $daysLeft = $today->diffInDays($expDate, false);
+            $productName = $batch->product?->product_name ?? 'Produk tidak diketahui';
             $batchNumber = $batch->batch_number ?? 'NO-BATCH';
 
-            // Tentukan tipe & pesan berdasarkan sisa hari
+            if ($daysLeft < 0 || in_array($daysLeft, [30, 7, 1, 0])) {
+            } else {
+                continue;
+            }
+
             [$type, $title, $body] = $this->resolveMessage($productName, $batchNumber, $daysLeft, $expDate);
 
-            // Hindari duplikat — jangan kirim notif yang sama di hari yang sama
             foreach ($recipients as $user) {
                 $alreadySent = Notification::where('user_id', $user->id)
                     ->where('type', $type)
@@ -82,15 +77,32 @@ class CheckExpiredBatches extends Command
                     ->whereDate('created_at', $today)
                     ->exists();
 
-                if ($alreadySent) continue;
+                if ($alreadySent) {
+                    $skippedCount++;
+                    continue;
+                }
 
-                NotificationService::sendToUser($user, $title, $body, $type);
+                SendBatchExpiryNotificationJob::dispatch(
+                    $user,
+                    $title,
+                    $body,
+                    $type,
+                    $batchNumber
+                );
 
-                $notifCount++;
+                $dispatchedCount++;
             }
         }
 
-        $this->info("$notifCount notifikasi berhasil dikirim.");
+        $this->info("$dispatchedCount job notifikasi berhasil dijadwalkan.");
+        $this->info("$skippedCount notifikasi di-skip (sudah dikirim hari ini).");
+        
+        Log::info('CheckExpiredBatches completed', [
+            'batches_found' => $batches->count(),
+            'jobs_dispatched' => $dispatchedCount,
+            'jobs_skipped' => $skippedCount,
+        ]);
+        
         return Command::SUCCESS;
     }
 
@@ -129,7 +141,7 @@ class CheckExpiredBatches extends Command
             ];
         }
 
-        if ($daysLeft <= 7) {
+        if ($daysLeft === 7) {
             // H-7
             return [
                 'batch_expiring_soon_7',
