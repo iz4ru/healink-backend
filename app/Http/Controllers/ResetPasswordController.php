@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Log;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -48,13 +49,21 @@ class ResetPasswordController extends Controller
         $status = Password::reset(
             $request->only('email', 'password', 'password_confirmation', 'token'),
             function ($user, string $password) {
-                $user->forceFill([
-                    'password' => Hash::make($password)
-                ])->setRememberToken(Str::random(60));
+                DB::transaction(function () use ($user, $password) {
+                    $user->forceFill([
+                        'password' => Hash::make($password)
+                    ])->setRememberToken(Str::random(60));
 
-                $user->save();
+                    $user->save();
 
-                event(new PasswordReset($user));
+                    event(new PasswordReset($user));
+
+                    Log::create([
+                        'user_id'  => $user->id,
+                        'activity' => 'Reset password',
+                        'detail'   => $user->name . ' berhasil mereset password akun melalui link email.',
+                    ]);
+                });
             }
         );
 

@@ -44,6 +44,10 @@ class AuthController extends Controller
 
 		$token = $user->createToken('auth_token')->plainTextToken;
 
+		$user->update([
+			'current_token' => hash('sha256', $token),
+		]);
+
 		return response()->json([
 			'message' => 'Login berhasil.',
 			'token'   => $token,

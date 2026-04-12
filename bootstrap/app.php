@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\CheckIfActive;
 use App\Http\Middleware\CheckRole;
+use App\Http\Middleware\CheckSingleSession;
 use App\Http\Middleware\UpdateLastSeen;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'check.role' => CheckRole::class,
             'check.active' => CheckIfActive::class,
+            'check.single.session' => CheckSingleSession::class,
             'update.lastseen' => UpdateLastSeen::class,
         ]);
     })

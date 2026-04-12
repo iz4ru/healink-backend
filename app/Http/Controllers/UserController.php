@@ -492,7 +492,7 @@ class UserController extends Controller
             $perPage = $request->query('per_page', 10);
             $logs = $query->paginate($perPage);
 
-            $logs->through(function($log) {
+            $logs = $logs->through(function($log) {
                 $dateStr = Carbon::parse($log->created_at)
                                 ->locale('id')
                                 ->translatedFormat('l d/m/y, H:i');
@@ -508,7 +508,7 @@ class UserController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Berhasil mengambil log aktivitas',
-                'data'    => $logs // Lempar langsung objek paginator-nya!
+                'data'    => $logs
             ], 200);
 
         } catch (\Exception $e) {

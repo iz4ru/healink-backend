@@ -22,6 +22,7 @@ return new class extends Migration
             $table->string('phone')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamp('last_seen')->nullable();
+            $table->string('current_token')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });
