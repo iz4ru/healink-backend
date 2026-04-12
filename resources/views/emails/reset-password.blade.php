@@ -59,7 +59,6 @@
                             
                             <p style="margin: 0 0 30px 0; font-size: 16px; line-height: 1.6; color: #666666; text-align: center;">
                                 Kamu menerima email ini karena ada permintaan reset password untuk akun Healink kamu.
-                                <span>Token kamu: {{ $token }}</span>
                             </p>
                             
                             <!-- CTA Button -->
