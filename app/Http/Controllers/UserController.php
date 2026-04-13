@@ -401,7 +401,7 @@ class UserController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Berhasil mengambil log aktivitas',
-                'data'    => $logs // Lempar langsung objek paginator-nya!
+                'data'    => $logs 
             ], 200);
 
         } catch (\Exception $e) {

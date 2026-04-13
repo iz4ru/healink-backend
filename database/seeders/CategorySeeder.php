@@ -14,11 +14,26 @@ class CategorySeeder extends Seeder
     public function run(): void
     {
         $categories = [
-            ['name' => 'Obat'],
-            ['name' => 'Vitamin'],
+
+            ['name' => 'Flu, Batuk & Pilek'],
+            ['name' => 'Demam & Nyeri'],
+            ['name' => 'Pencernaan & Maag'],
+            ['name' => 'Alergi'],
+            ['name' => 'Kulit & Infeksi Ringan'],
+
+            ['name' => 'Obat Mata & Telinga'],
+            ['name' => 'Obat Sariawan & Mulut'],
+            ['name' => 'Obat Cacing'],
+
+            ['name' => 'Vitamin & Suplemen'],
+            ['name' => 'Herbal & Tradisional'],
+
+            ['name' => 'Perawatan Luka'],
             ['name' => 'Alat Kesehatan'],
-            ['name' => 'Minuman'],
-            ['name' => 'Perawatan Tubuh'],
+            ['name' => 'Kebersihan & Sanitasi'],
+
+            ['name' => 'Ibu & Bayi'],
+            ['name' => 'Minuman Kesehatan'],
         ];
 
         foreach ($categories as $category) {

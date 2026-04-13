@@ -14,7 +14,7 @@ class DashboardController extends Controller
 {
     public function indexAdmin(Request $request)
     {
-        // Set timezone konsisten
+        
         $tz = config('app.timezone', 'Asia/Jakarta');
 
         Carbon::setLocale('id');
@@ -22,7 +22,7 @@ class DashboardController extends Controller
         $now = Carbon::now()->setTimezone($tz);
         $onlineThreshold = $now->copy()->subMinutes(2);
 
-        // ─── 1. TODAY'S STATS ───
+        
         $todayStart = Carbon::now()->setTimezone($tz)->startOfDay();
         $todayEnd = Carbon::now()->setTimezone($tz)->endOfDay();
         $yesterdayStart = Carbon::now()->setTimezone($tz)->subDay()->startOfDay();
@@ -42,7 +42,7 @@ class DashboardController extends Controller
             ? round((($todayStats->total - $yesterdayStats->total) / $yesterdayStats->total) * 100)
             : ($todayStats->count > 0 ? 100 : 0);
 
-        // ─── 2. WEEKLY SALES (7 days, Mon-Sun) ───
+        
         $weeklyData = [];
         for ($i = 6; $i >= 0; $i--) {
             $dayStart = Carbon::now()->setTimezone($tz)->subDays($i)->startOfDay();
@@ -58,8 +58,8 @@ class DashboardController extends Controller
             ];
         }
 
-        // ─── 3. STOCK ALERTS ───
-        // Low stock: total batch stock <= min_stock AND > 0
+        
+        
         $lowStock = Product::with('batches')
             ->whereNull('deleted_at')
             ->get()
@@ -69,28 +69,28 @@ class DashboardController extends Controller
             )
             ->count();
 
-        // Near expiry: batches expiring within 30 days, stock > 0
+        
         $nearExpiry = ProductBatch::where('exp_date', '<=', Carbon::now()->setTimezone($tz)->addDays(30)->endOfDay())
             ->where('exp_date', '>=', Carbon::now()->setTimezone($tz)->startOfDay())
             ->where('stock', '>', 0)
             ->whereNull('deleted_at')
             ->count();
 
-        // Out of stock: total batch stock = 0
+        
         $outOfStock = Product::with('batches')
             ->whereNull('deleted_at')
             ->get()
             ->filter(fn($p) => $p->batches->whereNull('deleted_at')->sum('stock') <= 0)
             ->count();
 
-        // Expired: exp_date < today, stock > 0
+        
         $expired = ProductBatch::where('exp_date', '<', Carbon::now()->setTimezone($tz)->startOfDay())
             ->where('stock', '>', 0)
             ->whereNull('deleted_at')
             ->count();
 
-        // ─── 4. CASHIER STATUS ───
-        // Karena tidak ada last_seen, tampilkan semua cashier aktif sebagai "online"
+        
+        
         $activeCashiers = User::where('role', 'cashier')
             ->where('is_active', true)
             ->count();
@@ -100,7 +100,7 @@ class DashboardController extends Controller
             ->where('last_seen', '>=', $onlineThreshold)
             ->get(['id', 'name', 'last_seen']);
 
-        // ─── RETURN UNIFIED RESPONSE ───
+        
         return response()->json([
             'success' => true,
             'data' => [
@@ -131,7 +131,7 @@ class DashboardController extends Controller
 
     public function indexOwner(Request $request)
     {
-        // Set timezone konsisten
+        
         $tz = config('app.timezone', 'Asia/Jakarta');
 
         Carbon::setLocale('id');
@@ -139,7 +139,7 @@ class DashboardController extends Controller
         $now = Carbon::now()->setTimezone($tz);
         $onlineThreshold = $now->copy()->subMinutes(2);
 
-        // ─── 1. TODAY'S STATS ───
+        
         $todayStart = Carbon::now()->setTimezone($tz)->startOfDay();
         $todayEnd = Carbon::now()->setTimezone($tz)->endOfDay();
         $yesterdayStart = Carbon::now()->setTimezone($tz)->subDay()->startOfDay();
@@ -159,7 +159,7 @@ class DashboardController extends Controller
             ? round((($todayStats->total - $yesterdayStats->total) / $yesterdayStats->total) * 100)
             : ($todayStats->count > 0 ? 100 : 0);
 
-        // ─── 2. WEEKLY SALES (7 days, Mon-Sun) ───
+        
         $weeklyData = [];
         for ($i = 6; $i >= 0; $i--) {
             $dayStart = Carbon::now()->setTimezone($tz)->subDays($i)->startOfDay();
@@ -175,8 +175,8 @@ class DashboardController extends Controller
             ];
         }
 
-        // ─── 3. STOCK ALERTS ───
-        // Low stock: total batch stock <= min_stock AND > 0
+        
+        
         $lowStock = Product::with('batches')
             ->whereNull('deleted_at')
             ->get()
@@ -186,28 +186,28 @@ class DashboardController extends Controller
             )
             ->count();
 
-        // Near expiry: batches expiring within 30 days, stock > 0
+        
         $nearExpiry = ProductBatch::where('exp_date', '<=', Carbon::now()->setTimezone($tz)->addDays(30)->endOfDay())
             ->where('exp_date', '>=', Carbon::now()->setTimezone($tz)->startOfDay())
             ->where('stock', '>', 0)
             ->whereNull('deleted_at')
             ->count();
 
-        // Out of stock: total batch stock = 0
+        
         $outOfStock = Product::with('batches')
             ->whereNull('deleted_at')
             ->get()
             ->filter(fn($p) => $p->batches->whereNull('deleted_at')->sum('stock') <= 0)
             ->count();
 
-        // Expired: exp_date < today, stock > 0
+        
         $expired = ProductBatch::where('exp_date', '<', Carbon::now()->setTimezone($tz)->startOfDay())
             ->where('stock', '>', 0)
             ->whereNull('deleted_at')
             ->count();
 
-        // ─── 4. USER STATUS ───
-        // Karena tidak ada last_seen, tampilkan semua cashier dan admin aktif sebagai "online"
+        
+        
         $activeUsers = User::whereIn('role', ['admin', 'cashier'])
             ->where('is_active', true)
             ->count();
@@ -217,7 +217,7 @@ class DashboardController extends Controller
             ->where('last_seen', '>=', $onlineThreshold)
             ->get(['id', 'name', 'role', 'last_seen']);
 
-        // ─── RETURN UNIFIED RESPONSE ───
+        
         return response()->json([
             'success' => true,
             'data' => [
@@ -254,14 +254,14 @@ class DashboardController extends Controller
 
         Carbon::setLocale('id');
 
-        // ─── 1. TODAY'S STATS (hanya transaksi kasir ini) ───
+        
         $todayStart = Carbon::now()->setTimezone($tz)->startOfDay();
         $todayEnd = Carbon::now()->setTimezone($tz)->endOfDay();
         $yesterdayStart = Carbon::now()->setTimezone($tz)->subDay()->startOfDay();
         $yesterdayEnd = Carbon::now()->setTimezone($tz)->subDay()->endOfDay();
 
         $todayStats = Transaction::where('status', 'sale')
-            ->where('user_id', $user->id) // 🔥 Filter by cashier
+            ->where('user_id', $user->id) 
             ->whereBetween('transaction_date', [$todayStart, $todayEnd])
             ->selectRaw('COUNT(*) as count, COALESCE(SUM(subtotal), 0) as total')
             ->first();
@@ -276,13 +276,13 @@ class DashboardController extends Controller
             ? round((($todayStats->total - $yesterdayStats->total) / $yesterdayStats->total) * 100)
             : ($todayStats->count > 0 ? 100 : 0);
 
-        // ─── 2. RECENT TRANSACTIONS (5 terakhir, kasir ini) ───
+        
         $recentTransactions = Transaction::where('user_id', $user->id)
             ->orderBy('transaction_date', 'desc')
             ->take(5)
             ->get(['id', 'trx_no', 'subtotal', 'transaction_date', 'status']);
 
-        // ─── 3. STOCK ALERTS (sama seperti admin, kasir perlu tahu) ───
+        
         $lowStock = Product::with('batches')
             ->whereNull('deleted_at')
             ->get()
@@ -309,7 +309,7 @@ class DashboardController extends Controller
             ->whereNull('deleted_at')
             ->count();
 
-        // ─── RETURN RESPONSE ───
+        
         return response()->json([
             'success' => true,
             'data' => [

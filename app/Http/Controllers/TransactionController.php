@@ -46,11 +46,11 @@ class TransactionController extends Controller
         }
 
         if ($request->filled('search')) {
-            // Ubah ketikan user dari Flutter menjadi huruf kecil semua
+            
             $search = strtolower($request->search);
 
             $query->where(function($q) use ($search) {
-                // Gunakan LOWER() SQL untuk menyamakan format kolom database
+                
                 $q->whereRaw('LOWER(trx_no) LIKE ?', ["%{$search}%"])
                     ->orWhereRaw('LOWER(customer_name) LIKE ?', ["%{$search}%"]);
             });
@@ -139,11 +139,11 @@ class TransactionController extends Controller
         }
 
         if ($request->filled('search')) {
-            // Ubah ketikan user dari Flutter menjadi huruf kecil semua
+            
             $search = strtolower($request->search);
 
             $query->where(function($q) use ($search) {
-                // Gunakan LOWER() SQL untuk menyamakan format kolom database
+                
                 $q->whereRaw('LOWER(trx_no) LIKE ?', ["%{$search}%"])
                     ->orWhereRaw('LOWER(customer_name) LIKE ?', ["%{$search}%"]);
             });
@@ -164,7 +164,7 @@ class TransactionController extends Controller
                 break;
         }
 
-        // ─── ORDER BY ───
+        
         switch ($sort) {
             case 'oldest':
                 $query->orderBy('transaction_date', 'asc');
@@ -179,9 +179,9 @@ class TransactionController extends Controller
                 $query->orderBy('transaction_date', 'desc');
         }
 
-        // --- PERCABANGAN FORMAT (EXCEL ATAU PDF) ---
+        
         if ($request->format === 'excel') {
-            // Kita oper $query, $request->start_date, dan $request->end_date ke dalam Export Class
+            
             return Excel::download(
                 new TransactionsExport($query, $request->start_date, $request->end_date),
                 'Laporan_Transaksi_Healink.xlsx'
@@ -369,13 +369,13 @@ class TransactionController extends Controller
             ], 200);
 
         } catch (ModelNotFoundException $e) {
-            // Jika ID tidak ditemukan di database
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Transaksi tidak ditemukan.'
             ], 404);
         } catch (\Exception $e) {
-            // Error umum lainnya
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan: ' . $e->getMessage()

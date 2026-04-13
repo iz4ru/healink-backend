@@ -66,14 +66,14 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        // Cari token fisik di database untuk dihapus
+        
         $tokenModel = PersonalAccessToken::findToken($request->bearerToken());
 
         if ($user && $tokenModel) {
-            // Hapus token lama
+            
             $tokenModel->delete();
 
-            // Buat token baru
+            
             $newToken = $user->createToken('auth_token')->plainTextToken;
 
             return response()->json([
@@ -82,7 +82,7 @@ class AuthController extends Controller
             ], 200);
         }
 
-        // Jika user tidak ditemukan atau token tidak valid
+        
         return response()->json(['message' => 'Unauthorized'], 401);
     }
 

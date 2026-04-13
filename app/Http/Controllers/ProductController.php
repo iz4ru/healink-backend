@@ -41,7 +41,7 @@ class ProductController extends Controller
                     $query->orderBy('created_at', 'asc');
                     break;
                 default:
-                    // newest
+                    
                     $query->orderBy('created_at', 'desc');
                     break;
             }
@@ -82,7 +82,7 @@ class ProductController extends Controller
             'product_ids.*' => 'integer',
         ]);
 
-        // Produk soft-deleted otomatis tidak ikut karena tidak pakai withTrashed()
+        
         $validIds = Product::whereIn('id', $request->product_ids)
             ->pluck('id')
             ->toArray();
@@ -101,7 +101,7 @@ class ProductController extends Controller
             $search = $request->query('search');
             $tz = config('app.timezone', 'Asia/Jakarta');
 
-            // Jika tidak ada filter, return empty (konsisten dengan format index)
+            
             if (empty($filters)) {
                 return response()->json([
                     'success' => true,
@@ -109,11 +109,11 @@ class ProductController extends Controller
                 ], 200);
             }
 
-            // Query dasar: sama seperti index()
+            
             $query = Product::with(['categories', 'unit', 'batches' => fn($q) => $q->whereNull('deleted_at')])
                 ->whereNull('products.deleted_at');
 
-            // Search: sama seperti index()
+            
             if ($search) {
                 $search = strtolower(trim($search));
                 $query->where(function($q) use ($search) {
@@ -122,7 +122,7 @@ class ProductController extends Controller
                 });
             }
 
-            // Ambil semua produk, lalu filter di PHP (karena logic kompleks per batch)
+            
             $products = $query->get()->filter(function($product) use ($filters, $tz) {
                 $totalStock = $product->batches->whereNull('deleted_at')->sum('stock');
 
@@ -158,14 +158,14 @@ class ProductController extends Controller
                 return false;
             });
 
-            // Return format SAMA PERSIS dengan index()
+            
             return response()->json([
                 'success' => true,
-                'data' => $products->values(), // Reset keys agar JSON array valid
+                'data' => $products->values(), 
             ], 200);
 
         } catch (\Exception $e) {
-            // Error handling SAMA PERSIS dengan index()
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Error: ' . $e->getMessage(),
@@ -580,7 +580,7 @@ class ProductController extends Controller
                 'description' => $data['description'] ?? $product->description,
             ]);
 
-            // compare kategori
+            
             $oldCategories = $product->categories->pluck('id')->toArray();
             $newCategories = $data['category_ids'];
 

@@ -35,10 +35,10 @@ class NotificationService
             $credentials = json_decode($credentials, true);
         }
         else {
-            // Hanya panggil base_path kalau isinya bukan JSON
+            
             $credentials = base_path($credentials);
 
-            // Cek apakah file beneran ada
+            
             if (!is_file($credentials)) {
                 Log::error("File Firebase tidak ditemukan di: " . $credentials);
                 return;
